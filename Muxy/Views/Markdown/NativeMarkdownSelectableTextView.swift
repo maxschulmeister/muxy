@@ -1,6 +1,11 @@
 import AppKit
 import SwiftUI
 
+private extension NSAttributedString.Key {
+    static let nativeMarkdownCodeBlock = NSAttributedString.Key("muxy.nativeMarkdown.codeBlock")
+    static let nativeMarkdownInlineCode = NSAttributedString.Key("muxy.nativeMarkdown.inlineCode")
+}
+
 enum NativeMarkdownSelectableTextRenderer {
     private struct ParsedListLine {
         let level: Int
@@ -206,16 +211,17 @@ enum NativeMarkdownSelectableTextRenderer {
         palette: MarkdownRenderer.Palette,
         bodyFont: NSFont
     ) {
-        let paragraphStyle = blockParagraphStyle(spacingBefore: 4, spacingAfter: 10)
-        paragraphStyle.firstLineHeadIndent = 12
-        paragraphStyle.headIndent = 12
-        paragraphStyle.tailIndent = -12
+        let paragraphStyle = blockParagraphStyle(spacingBefore: 8, spacingAfter: 12)
+        paragraphStyle.firstLineHeadIndent = 14
+        paragraphStyle.headIndent = 14
+        paragraphStyle.tailIndent = -14
+        paragraphStyle.lineSpacing = 1
         let codeFont = NSFont.monospacedSystemFont(ofSize: bodyFont.pointSize * 0.92, weight: .regular)
         let text = code.hasSuffix("\n") ? code : code + "\n"
         result.append(NSAttributedString(string: text, attributes: [
             .font: codeFont,
             .foregroundColor: palette.foreground,
-            .backgroundColor: palette.codeBackgroundColor,
+            .nativeMarkdownCodeBlock: true,
             .paragraphStyle: paragraphStyle,
         ]))
     }
@@ -260,7 +266,7 @@ enum NativeMarkdownSelectableTextRenderer {
         ], range: fullRange)
 
         attributed.enumerateAttribute(.inlinePresentationIntent, in: fullRange) { value, range, _ in
-            guard let intent = value as? InlinePresentationIntent else { return }
+            guard let intent = inlinePresentationIntent(from: value) else { return }
             var font = bodyFont
             if intent.contains(.stronglyEmphasized) {
                 font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
@@ -270,7 +276,7 @@ enum NativeMarkdownSelectableTextRenderer {
             }
             if intent.contains(.code) {
                 font = NSFont.monospacedSystemFont(ofSize: bodyFont.pointSize * 0.92, weight: .regular)
-                attributed.addAttribute(.backgroundColor, value: palette.codeBackgroundColor, range: range)
+                attributed.addAttribute(.nativeMarkdownInlineCode, value: true, range: range)
             }
             if intent.contains(.strikethrough) {
                 attributed.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range)
@@ -284,6 +290,16 @@ enum NativeMarkdownSelectableTextRenderer {
         }
 
         return attributed
+    }
+
+    private static func inlinePresentationIntent(from value: Any?) -> InlinePresentationIntent? {
+        if let intent = value as? InlinePresentationIntent {
+            return intent
+        }
+        if let number = value as? NSNumber {
+            return InlinePresentationIntent(rawValue: number.uintValue)
+        }
+        return nil
     }
 
     private static func parseHeading(_ trimmed: String) -> (level: Int, text: String)? {
@@ -484,6 +500,9 @@ struct NativeMarkdownSelectableTextBlockView: NSViewRepresentable {
         textView.linkTextAttributes = base
         textView.baseLinkAttributes = base
         textView.hoverLinkAttributes = hover
+        textView.nativeMarkdownCodeBackgroundColor = palette.codeBackgroundColor
+        textView.nativeMarkdownCodeBorderColor = palette.borderColor
+        textView.needsDisplay = true
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -510,6 +529,8 @@ struct NativeMarkdownSelectableTextBlockView: NSViewRepresentable {
 final class NativeMarkdownSelectableTextView: NSTextView {
     var baseLinkAttributes: [NSAttributedString.Key: Any] = [:]
     var hoverLinkAttributes: [NSAttributedString.Key: Any] = [:]
+    var nativeMarkdownCodeBackgroundColor: NSColor = .textBackgroundColor
+    var nativeMarkdownCodeBorderColor: NSColor = .separatorColor
     private var hoverTrackingArea: NSTrackingArea?
     private var hoveredLinkRange: NSRange?
 
@@ -528,6 +549,11 @@ final class NativeMarkdownSelectableTextView: NSTextView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         window?.acceptsMouseMovedEvents = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        drawNativeMarkdownCodeBackgrounds(in: dirtyRect)
+        super.draw(dirtyRect)
     }
 
     override func updateTrackingAreas() {
@@ -613,6 +639,87 @@ final class NativeMarkdownSelectableTextView: NSTextView {
             textStorage.addAttributes(baseLinkAttributes, range: hoveredLinkRange)
         }
         self.hoveredLinkRange = nil
+    }
+
+    private func drawNativeMarkdownCodeBackgrounds(in dirtyRect: NSRect) {
+        drawCodeBlockBackgrounds(in: dirtyRect)
+        drawInlineCodeBackgrounds(in: dirtyRect)
+    }
+
+    private func drawCodeBlockBackgrounds(in dirtyRect: NSRect) {
+        enumerateRanges(with: .nativeMarkdownCodeBlock) { range in
+            guard let rect = blockBackgroundRect(for: range), rect.intersects(dirtyRect) else { return }
+
+            let path = NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7)
+            nativeMarkdownCodeBackgroundColor.setFill()
+            path.fill()
+
+            nativeMarkdownCodeBorderColor.withAlphaComponent(0.35).setStroke()
+            path.lineWidth = 1
+            path.stroke()
+        }
+    }
+
+    private func drawInlineCodeBackgrounds(in dirtyRect: NSRect) {
+        enumerateRanges(with: .nativeMarkdownInlineCode) { range in
+            for rect in inlineBackgroundRects(for: range) where rect.intersects(dirtyRect) {
+                let path = NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4)
+                nativeMarkdownCodeBackgroundColor.setFill()
+                path.fill()
+            }
+        }
+    }
+
+    private func enumerateRanges(with attribute: NSAttributedString.Key, handler: (NSRange) -> Void) {
+        guard let textStorage, textStorage.length > 0 else { return }
+        let fullRange = NSRange(location: 0, length: textStorage.length)
+        textStorage.enumerateAttribute(attribute, in: fullRange) { value, range, _ in
+            guard value != nil, range.length > 0 else { return }
+            handler(range)
+        }
+    }
+
+    private func blockBackgroundRect(for characterRange: NSRange) -> NSRect? {
+        guard let layoutManager, let textContainer else { return nil }
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: characterRange, actualCharacterRange: nil)
+        guard glyphRange.length > 0 else { return nil }
+
+        layoutManager.ensureLayout(for: textContainer)
+        var unionRect: NSRect?
+        layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { lineRect, _, _, _, _ in
+            unionRect = unionRect.map { $0.union(lineRect) } ?? lineRect
+        }
+
+        guard var rect = unionRect else { return nil }
+        let origin = textContainerOrigin
+        rect.origin.x = bounds.minX + 0.5
+        rect.origin.y += origin.y - 6
+        rect.size.width = max(0, bounds.width - 1)
+        rect.size.height += 12
+        return rect.integral
+    }
+
+    private func inlineBackgroundRects(for characterRange: NSRange) -> [NSRect] {
+        guard let layoutManager, let textContainer else { return [] }
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: characterRange, actualCharacterRange: nil)
+        guard glyphRange.length > 0 else { return [] }
+
+        layoutManager.ensureLayout(for: textContainer)
+        let origin = textContainerOrigin
+        var rects: [NSRect] = []
+        layoutManager.enumerateEnclosingRects(
+            forGlyphRange: glyphRange,
+            withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0),
+            in: textContainer
+        ) { rect, _ in
+            rects.append(
+                rect
+                    .offsetBy(dx: origin.x, dy: origin.y)
+                    .insetBy(dx: -4, dy: -1.5)
+                    .integral
+            )
+        }
+        return rects
     }
 
     private func addLinkCursorRects() {
