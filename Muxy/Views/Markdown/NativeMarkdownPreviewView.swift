@@ -8,6 +8,7 @@ struct NativeMarkdownPreviewView: View {
     let filePath: String?
     let projectPath: String?
     let palette: MarkdownRenderer.Palette
+    let refreshVersion: Int
     @Binding var syncScrollRequest: CGFloat?
     let syncScrollRequestVersion: Int
     var fragmentTarget: String?
@@ -59,9 +60,10 @@ struct NativeMarkdownPreviewView: View {
                                     markdownTheme: markdownTheme
                                 )
                             case let .mermaid(source):
-                                NativeMermaidBlockView(source: source, palette: palette)
+                                NativeMermaidBlockView(source: source, palette: palette, refreshVersion: refreshVersion)
                             }
                         }
+                        .id("\(unit.id)-\(refreshVersion)")
                         .nativeMarkdownAnchorGeometry(
                             anchorID: unit.anchor.id,
                             startLine: unit.anchor.startLine,
@@ -69,6 +71,7 @@ struct NativeMarkdownPreviewView: View {
                         )
                     }
                 }
+                .textSelection(.enabled)
                 .frame(maxWidth: 900, alignment: .topLeading)
                 .padding(.horizontal, 32)
                 .padding(.top, 24)
@@ -530,31 +533,40 @@ private struct NativeMarkdownCompatibleMarkdownView: View {
             ForEach(segments) { segment in
                 switch segment.content {
                 case let .markdown(markdown):
-                    Markdown(
-                        NativeMarkdownHTMLCompatibilityPreprocessor.preprocess(markdown, baseURL: baseURL),
+                    let preparedMarkdown = NativeMarkdownHTMLCompatibilityPreprocessor.preprocess(markdown, baseURL: baseURL)
+                    if let attributedList = NativeMarkdownSelectableListRenderer.attributedList(
+                        from: preparedMarkdown,
                         baseURL: baseURL,
-                        imageBaseURL: baseURL
-                    )
-                    .markdownTheme(markdownTheme)
-                    .textSelection(.enabled)
+                        palette: palette
+                    ) {
+                        NativeMarkdownSelectableListView(attributedString: attributedList, palette: palette)
+                    } else {
+                        Markdown(
+                            preparedMarkdown,
+                            baseURL: baseURL,
+                            imageBaseURL: baseURL
+                        )
+                        .markdownTheme(markdownTheme)
+                        .nativeMarkdownLinkCursor(enabled: NativeMarkdownHTMLCompatibilityPreprocessor.containsLinks(in: preparedMarkdown))
+                    }
 
                 case let .heading(level, text, alignment):
                     Text(text)
                         .font(headingFont(for: level))
                         .fontWeight(.semibold)
                         .foregroundStyle(Color(nsColor: palette.foreground))
-                        .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: alignment.frameAlignment)
                         .multilineTextAlignment(alignment.textAlignment)
 
                 case let .paragraph(markdown, alignment):
+                    let preparedMarkdown = NativeMarkdownHTMLCompatibilityPreprocessor.preprocess(markdown, baseURL: baseURL)
                     Markdown(
-                        NativeMarkdownHTMLCompatibilityPreprocessor.preprocess(markdown, baseURL: baseURL),
+                        preparedMarkdown,
                         baseURL: baseURL,
                         imageBaseURL: baseURL
                     )
                     .markdownTheme(markdownTheme)
-                    .textSelection(.enabled)
+                    .nativeMarkdownLinkCursor(enabled: NativeMarkdownHTMLCompatibilityPreprocessor.containsLinks(in: preparedMarkdown))
                     .frame(maxWidth: .infinity, alignment: alignment.frameAlignment)
                     .multilineTextAlignment(alignment.textAlignment)
 
@@ -860,6 +872,13 @@ private enum NativeMarkdownHTMLCompatibilityPreprocessor {
         return output
     }
 
+    static func containsLinks(in markdown: String) -> Bool {
+        markdown.range(
+            of: #"(?is)\[[^\]\n]+\]\([^)]+\)|<a\b[^>]*\bhref\s*=|\bhttps?://\S+"#,
+            options: .regularExpression
+        ) != nil
+    }
+
     private static func parseHeading(_ html: String) -> HTMLHeading? {
         guard let match = firstMatch(pattern: #"(?is)^<h([1-6])\b([^>]*)>(.*?)</h\1>$"#, in: html),
               let level = Int(match.capture(1))
@@ -1130,6 +1149,10 @@ private enum NativeMarkdownAnchorFramesPreferenceKey: PreferenceKey {
 }
 
 private extension View {
+    func nativeMarkdownLinkCursor(enabled: Bool) -> some View {
+        modifier(NativeMarkdownLinkCursorModifier(enabled: enabled))
+    }
+
     func nativeMarkdownAnchorGeometry(anchorID: String?, startLine: Int?, endLine: Int?) -> some View {
         background(
             GeometryReader { proxy in
@@ -1153,6 +1176,41 @@ private extension View {
                 }
             }
         )
+    }
+}
+
+private struct NativeMarkdownLinkCursorModifier: ViewModifier {
+    let enabled: Bool
+    @State private var cursorPushed = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { hovering in
+                updateCursor(hovering: hovering)
+            }
+            .onDisappear {
+                popCursorIfNeeded()
+            }
+    }
+
+    private func updateCursor(hovering: Bool) {
+        guard enabled else {
+            popCursorIfNeeded()
+            return
+        }
+
+        if hovering, !cursorPushed {
+            NSCursor.pointingHand.push()
+            cursorPushed = true
+        } else if !hovering {
+            popCursorIfNeeded()
+        }
+    }
+
+    private func popCursorIfNeeded() {
+        guard cursorPushed else { return }
+        NSCursor.pop()
+        cursorPushed = false
     }
 }
 
@@ -1195,6 +1253,7 @@ private extension Theme {
             }
             .link {
                 ForegroundColor(accent)
+                UnderlineStyle(.single)
             }
             .code {
                 FontFamilyVariant(.monospaced)
@@ -1205,7 +1264,7 @@ private extension Theme {
     }
 }
 
-private extension MarkdownRenderer.Palette {
+extension MarkdownRenderer.Palette {
     var borderColor: NSColor {
         background.blended(withFraction: 0.18, of: foreground) ?? foreground.withAlphaComponent(0.25)
     }

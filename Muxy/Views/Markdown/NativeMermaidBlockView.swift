@@ -13,6 +13,7 @@ import BeautifulMermaid
 struct NativeMermaidBlockView: View {
     let source: String
     let palette: MarkdownRenderer.Palette
+    let refreshVersion: Int
 
     @State private var parseError: Error?
     @State private var diagramBounds: CGRect = .zero
@@ -103,6 +104,7 @@ struct NativeMermaidBlockView: View {
         .onAppear { renderFittedDiagramIfNeeded() }
         .onChange(of: source) { _, _ in invalidateAndRender() }
         .onChange(of: palette) { _, _ in invalidateAndRender() }
+        .onChange(of: refreshVersion) { _, _ in invalidateAndRender() }
         .onChange(of: availableWidth) { _, _ in renderFittedDiagramIfNeeded() }
     }
 

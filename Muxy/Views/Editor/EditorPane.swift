@@ -144,6 +144,7 @@ struct EditorPane: View {
                     filePath: state.filePath,
                     projectPath: state.projectPath,
                     palette: markdownPalette,
+                    refreshVersion: state.previewRefreshVersion,
                     syncScrollRequest: $state.markdownPreviewScrollRequest,
                     syncScrollRequestVersion: state.markdownPreviewScrollRequestVersion,
                     fragmentTarget: state.markdownFragmentTarget,
@@ -188,6 +189,14 @@ struct EditorPane: View {
             let disallowed: EventModifiers = [.command, .control, .option]
             guard press.modifiers.isDisjoint(with: disallowed) else { return .ignored }
             state.markdownViewMode = press.modifiers.contains(.shift) ? .split : .code
+            return .handled
+        }
+        .onKeyPress(keys: ["r"]) { press in
+            guard state.markdownViewMode == .preview || state.markdownViewMode == .split else { return .ignored }
+            guard press.modifiers.contains(.command), press.modifiers.isDisjoint(with: [.control, .option, .shift]) else {
+                return .ignored
+            }
+            state.previewRefreshVersion += 1
             return .handled
         }
         .onAppear { acquireMarkdownPreviewFocusIfNeeded() }

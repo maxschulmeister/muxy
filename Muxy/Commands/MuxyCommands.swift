@@ -69,6 +69,16 @@ struct MuxyCommands: Commands {
         return state.markdownViewMode == .preview || state.markdownViewMode == .split
     }
 
+    private func refreshMarkdownPreview() {
+        guard isMainWindowFocused,
+              let state = activeEditorState,
+              state.isMarkdownFile,
+              state.markdownViewMode == .preview || state.markdownViewMode == .split
+        else { return }
+
+        state.previewRefreshVersion += 1
+    }
+
     private func adjustMarkdownPreviewZoom(by delta: CGFloat) {
         EditorSettings.shared.adjustMarkdownPreviewFontScale(by: delta)
     }
@@ -307,6 +317,14 @@ struct MuxyCommands: Commands {
         }
 
         CommandGroup(after: .toolbar) {
+            Button("Refresh Markdown Preview") {
+                refreshMarkdownPreview()
+            }
+            .keyboardShortcut("r", modifiers: .command)
+            .disabled(!isMarkdownPreviewActive)
+
+            Divider()
+
             Button("Zoom In Markdown Preview") {
                 guard isMainWindowFocused, isMarkdownPreviewActive else { return }
                 adjustMarkdownPreviewZoom(by: EditorSettings.markdownPreviewZoomStep)
