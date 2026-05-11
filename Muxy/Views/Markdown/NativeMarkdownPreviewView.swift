@@ -1,5 +1,4 @@
 import AppKit
-import MarkdownUI
 import SwiftUI
 
 /// Native SwiftUI markdown preview.
@@ -39,10 +38,6 @@ struct NativeMarkdownPreviewView: View {
         return URL(fileURLWithPath: filePath).deletingLastPathComponent()
     }
 
-    private var markdownTheme: Theme {
-        Theme.muxy(from: palette)
-    }
-
     var body: some View {
         let renderUnits = NativeMarkdownRenderUnitBuilder.build(content: content)
 
@@ -56,8 +51,7 @@ struct NativeMarkdownPreviewView: View {
                                 NativeMarkdownCompatibleMarkdownView(
                                     markdown: markdown,
                                     baseURL: baseURL,
-                                    palette: palette,
-                                    markdownTheme: markdownTheme
+                                    palette: palette
                                 )
                             case let .mermaid(source):
                                 NativeMermaidBlockView(source: source, palette: palette, refreshVersion: refreshVersion)
@@ -71,7 +65,6 @@ struct NativeMarkdownPreviewView: View {
                         )
                     }
                 }
-                .textSelection(.enabled)
                 .frame(maxWidth: 900, alignment: .topLeading)
                 .padding(.horizontal, 32)
                 .padding(.top, 24)
@@ -338,7 +331,7 @@ struct NativeMarkdownPreviewView: View {
         guard let scrollView else { return false }
         let normalizedTarget = normalizedAnchorFragment(fragment)
         guard let unit = renderUnits.first(where: { unit in
-            guard unit.anchor.kind == .heading || unit.anchor.kind == .htmlBlock else { return false }
+            guard case .markdown = unit.block else { return false }
             return headingFragments(for: unit).contains(normalizedTarget)
         })
         else { return false }
@@ -374,7 +367,7 @@ struct NativeMarkdownPreviewView: View {
         case .mermaid: return fragments
         }
 
-        if let heading = markdownHeadingText(from: markdown) ?? htmlHeadingText(from: markdown) {
+        for heading in markdownHeadingTexts(from: markdown) + htmlHeadingTexts(from: markdown) {
             let normalized = normalizedAnchorFragment(heading)
             if !normalized.isEmpty {
                 fragments.insert(normalized)
@@ -383,26 +376,26 @@ struct NativeMarkdownPreviewView: View {
         return fragments
     }
 
-    private func markdownHeadingText(from markdown: String) -> String? {
-        guard let firstLine = markdown.split(separator: "\n", omittingEmptySubsequences: false).first else { return nil }
-        let trimmed = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hashes = trimmed.prefix { $0 == "#" }.count
-        guard (1 ... 6).contains(hashes), trimmed.count > hashes else { return nil }
-        let start = trimmed.index(trimmed.startIndex, offsetBy: hashes)
-        guard trimmed[start].isWhitespace else { return nil }
-        return String(trimmed[start...]).trimmingCharacters(in: .whitespacesAndNewlines)
+    private func markdownHeadingTexts(from markdown: String) -> [String] {
+        markdown.split(separator: "\n", omittingEmptySubsequences: false).compactMap { line in
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            let hashes = trimmed.prefix { $0 == "#" }.count
+            guard (1 ... 6).contains(hashes), trimmed.count > hashes else { return nil }
+            let start = trimmed.index(trimmed.startIndex, offsetBy: hashes)
+            guard trimmed[start].isWhitespace else { return nil }
+            return String(trimmed[start...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
     }
 
-    private func htmlHeadingText(from markdown: String) -> String? {
+    private func htmlHeadingTexts(from markdown: String) -> [String] {
         let pattern = #"(?is)<h[1-6]\b[^>]*>(.*?)</h[1-6]>"#
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(in: markdown, range: NSRange(markdown.startIndex..., in: markdown)),
-              let range = Range(match.range(at: 1), in: markdown)
-        else { return nil }
-
-        return String(markdown[range])
-            .replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        return regex.matches(in: markdown, options: [], range: NSRange(markdown.startIndex..., in: markdown)).compactMap { match in
+            guard let range = Range(match.range(at: 1), in: markdown) else { return nil }
+            return String(markdown[range])
+                .replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
     }
 
     private func normalizedAnchorFragment(_ value: String) -> String {
@@ -459,62 +452,27 @@ private struct NativeMarkdownRenderUnit: Identifiable, Equatable {
 
 private enum NativeMarkdownRenderUnitBuilder {
     static func build(content: String) -> [NativeMarkdownRenderUnit] {
-        let anchors = MarkdownAnchorParser.parseAnchors(in: content)
-        let lines = splitLines(content)
-
-        guard !anchors.isEmpty else {
-            let fallbackAnchor = MarkdownSyncAnchor(id: "anchor-document-1", kind: .paragraph, startLine: 1, endLine: max(1, lines.count))
-            return [NativeMarkdownRenderUnit(id: fallbackAnchor.id, anchor: fallbackAnchor, block: .markdown(content))]
-        }
-
-        return anchors.map { anchor in
-            let markdown = slice(lines: lines, startLine: anchor.startLine, endLine: anchor.endLine)
-            let block: NativeMarkdownRenderUnit.Block = anchor.kind == .mermaid
-                ? .mermaid(extractMermaidSource(from: markdown))
-                : .markdown(markdown)
+        let syncAnchors = MarkdownAnchorParser.parseAnchors(in: content)
+        return NativeMarkdownDocumentParser.parseSpanned(content).enumerated().map { index, spannedBlock in
+            let kind: MarkdownSyncAnchorKind = switch spannedBlock.block {
+            case .markdown: .paragraph
+            case .mermaid: .mermaid
+            }
+            let fallbackAnchor = MarkdownSyncAnchor(
+                id: "anchor-\(kind.rawValue)-\(index + 1)",
+                kind: kind,
+                startLine: spannedBlock.startLine,
+                endLine: spannedBlock.endLine
+            )
+            let anchor = syncAnchors.first { anchor in
+                anchor.startLine >= spannedBlock.startLine && anchor.startLine <= spannedBlock.endLine
+            } ?? fallbackAnchor
+            let block: NativeMarkdownRenderUnit.Block = switch spannedBlock.block {
+            case let .markdown(markdown): .markdown(markdown)
+            case let .mermaid(source): .mermaid(source)
+            }
             return NativeMarkdownRenderUnit(id: anchor.id, anchor: anchor, block: block)
         }
-    }
-
-    private static func splitLines(_ markdown: String) -> [String] {
-        markdown
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map(String.init)
-    }
-
-    private static func slice(lines: [String], startLine: Int, endLine: Int) -> String {
-        guard !lines.isEmpty else { return "" }
-        let lower = min(max(0, startLine - 1), lines.count - 1)
-        let upper = min(max(lower, endLine - 1), lines.count - 1)
-        return lines[lower ... upper].joined(separator: "\n")
-    }
-
-    private static func extractMermaidSource(from fencedMarkdown: String) -> String {
-        var lines = splitLines(fencedMarkdown)
-        if let first = lines.first?.trimmingCharacters(in: .whitespaces), isFenceOpening(first) {
-            lines.removeFirst()
-        }
-        if let last = lines.last?.trimmingCharacters(in: .whitespaces), isFenceClosing(last) {
-            lines.removeLast()
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    private static func isFenceOpening(_ line: String) -> Bool {
-        guard let marker = line.first, marker == "`" || marker == "~" else { return false }
-        let count = line.prefix { $0 == marker }.count
-        guard count >= 3 else { return false }
-        let rest = line.dropFirst(count).trimmingCharacters(in: .whitespaces).lowercased()
-        return rest.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true).first == "mermaid"
-    }
-
-    private static func isFenceClosing(_ line: String) -> Bool {
-        guard let marker = line.first, marker == "`" || marker == "~" else { return false }
-        let count = line.prefix { $0 == marker }.count
-        guard count >= 3 else { return false }
-        return line.dropFirst(count).trimmingCharacters(in: .whitespaces).isEmpty
     }
 }
 
@@ -522,7 +480,6 @@ private struct NativeMarkdownCompatibleMarkdownView: View {
     let markdown: String
     let baseURL: URL?
     let palette: MarkdownRenderer.Palette
-    let markdownTheme: Theme
 
     private var segments: [NativeMarkdownHTMLCompatibilityPreprocessor.Segment] {
         NativeMarkdownHTMLCompatibilityPreprocessor.segments(from: markdown, baseURL: baseURL)
@@ -534,20 +491,12 @@ private struct NativeMarkdownCompatibleMarkdownView: View {
                 switch segment.content {
                 case let .markdown(markdown):
                     let preparedMarkdown = NativeMarkdownHTMLCompatibilityPreprocessor.preprocess(markdown, baseURL: baseURL)
-                    if let attributedList = NativeMarkdownSelectableListRenderer.attributedList(
+                    if let attributedMarkdown = NativeMarkdownSelectableTextRenderer.attributedMarkdown(
                         from: preparedMarkdown,
                         baseURL: baseURL,
                         palette: palette
                     ) {
-                        NativeMarkdownSelectableListView(attributedString: attributedList, palette: palette)
-                    } else {
-                        Markdown(
-                            preparedMarkdown,
-                            baseURL: baseURL,
-                            imageBaseURL: baseURL
-                        )
-                        .markdownTheme(markdownTheme)
-                        .nativeMarkdownLinkCursor(enabled: NativeMarkdownHTMLCompatibilityPreprocessor.containsLinks(in: preparedMarkdown))
+                        NativeMarkdownSelectableTextBlockView(attributedString: attributedMarkdown, palette: palette)
                     }
 
                 case let .heading(level, text, alignment):
@@ -560,15 +509,14 @@ private struct NativeMarkdownCompatibleMarkdownView: View {
 
                 case let .paragraph(markdown, alignment):
                     let preparedMarkdown = NativeMarkdownHTMLCompatibilityPreprocessor.preprocess(markdown, baseURL: baseURL)
-                    Markdown(
-                        preparedMarkdown,
+                    if let attributedMarkdown = NativeMarkdownSelectableTextRenderer.attributedMarkdown(
+                        from: preparedMarkdown,
                         baseURL: baseURL,
-                        imageBaseURL: baseURL
-                    )
-                    .markdownTheme(markdownTheme)
-                    .nativeMarkdownLinkCursor(enabled: NativeMarkdownHTMLCompatibilityPreprocessor.containsLinks(in: preparedMarkdown))
-                    .frame(maxWidth: .infinity, alignment: alignment.frameAlignment)
-                    .multilineTextAlignment(alignment.textAlignment)
+                        palette: palette
+                    ) {
+                        NativeMarkdownSelectableTextBlockView(attributedString: attributedMarkdown, palette: palette)
+                            .frame(maxWidth: .infinity, alignment: alignment.frameAlignment)
+                    }
 
                 case let .images(images, alignment):
                     Group {
@@ -872,13 +820,6 @@ private enum NativeMarkdownHTMLCompatibilityPreprocessor {
         return output
     }
 
-    static func containsLinks(in markdown: String) -> Bool {
-        markdown.range(
-            of: #"(?is)\[[^\]\n]+\]\([^)]+\)|<a\b[^>]*\bhref\s*=|\bhttps?://\S+"#,
-            options: .regularExpression
-        ) != nil
-    }
-
     private static func parseHeading(_ html: String) -> HTMLHeading? {
         guard let match = firstMatch(pattern: #"(?is)^<h([1-6])\b([^>]*)>(.*?)</h\1>$"#, in: html),
               let level = Int(match.capture(1))
@@ -1149,10 +1090,6 @@ private enum NativeMarkdownAnchorFramesPreferenceKey: PreferenceKey {
 }
 
 private extension View {
-    func nativeMarkdownLinkCursor(enabled: Bool) -> some View {
-        modifier(NativeMarkdownLinkCursorModifier(enabled: enabled))
-    }
-
     func nativeMarkdownAnchorGeometry(anchorID: String?, startLine: Int?, endLine: Int?) -> some View {
         background(
             GeometryReader { proxy in
@@ -1179,41 +1116,6 @@ private extension View {
     }
 }
 
-private struct NativeMarkdownLinkCursorModifier: ViewModifier {
-    let enabled: Bool
-    @State private var cursorPushed = false
-
-    func body(content: Content) -> some View {
-        content
-            .onHover { hovering in
-                updateCursor(hovering: hovering)
-            }
-            .onDisappear {
-                popCursorIfNeeded()
-            }
-    }
-
-    private func updateCursor(hovering: Bool) {
-        guard enabled else {
-            popCursorIfNeeded()
-            return
-        }
-
-        if hovering, !cursorPushed {
-            NSCursor.pointingHand.push()
-            cursorPushed = true
-        } else if !hovering {
-            popCursorIfNeeded()
-        }
-    }
-
-    private func popCursorIfNeeded() {
-        guard cursorPushed else { return }
-        NSCursor.pop()
-        cursorPushed = false
-    }
-}
-
 private enum NativeMarkdownScrollMetricsPreferenceKey: PreferenceKey {
     static let coordinateSpaceName = "NativeMarkdownPreviewScrollView"
 
@@ -1229,38 +1131,6 @@ private enum NativeMarkdownScrollMetricsPreferenceKey: PreferenceKey {
 
     static func reduce(value: inout Value, nextValue: () -> Value) {
         value = nextValue()
-    }
-}
-
-private extension Theme {
-    static func muxy(from palette: MarkdownRenderer.Palette) -> Theme {
-        let foreground = Color(nsColor: palette.foreground)
-        let accent = Color(nsColor: palette.accent)
-        let codeBackground = Color(nsColor: palette.codeBackgroundColor)
-        let fontSize = max(10, 14 * palette.fontScale)
-
-        // Start from MarkdownUI's GitHub theme so headings, fenced code blocks,
-        // tables, lists, and thematic breaks get full block-level styling. Keep
-        // overrides here to text-style-only operations to avoid Swift 6 actor
-        // isolation issues with MarkdownUI's block view modifiers in app code.
-        return Theme.gitHub
-            .text {
-                ForegroundColor(foreground)
-                if let fontFamilyName = palette.fontFamilyName {
-                    FontFamily(.custom(fontFamilyName))
-                }
-                FontSize(fontSize)
-            }
-            .link {
-                ForegroundColor(accent)
-                UnderlineStyle(.single)
-            }
-            .code {
-                FontFamilyVariant(.monospaced)
-                FontSize(.em(0.85))
-                ForegroundColor(foreground)
-                BackgroundColor(codeBackground)
-            }
     }
 }
 
