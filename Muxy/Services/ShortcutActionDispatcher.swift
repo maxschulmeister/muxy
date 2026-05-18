@@ -194,7 +194,11 @@ struct ShortcutActionDispatcher {
              .selectProject6,
              .selectProject7,
              .selectProject8,
-             .selectProject9:
+             .selectProject9,
+             .refreshMarkdownPreview,
+             .zoomInMarkdownPreview,
+             .zoomOutMarkdownPreview,
+             .resetMarkdownPreviewZoom:
             return false
         }
     }

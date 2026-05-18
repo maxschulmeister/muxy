@@ -132,9 +132,6 @@ final class MarkdownScrollSyncController {
         refreshViewport()
         rebuildLineStartOffsets()
 
-        // `boundsDidChange` normally clears this flag synchronously. Keep a safety
-        // reset for no-notification edge cases so the next user scroll is not
-        // accidentally swallowed as an echo of a programmatic request.
         let appliedRequestVersion = lastAppliedScrollRequestVersion
         DispatchQueue.main.async { [weak self] in
             guard let self, self.lastAppliedScrollRequestVersion == appliedRequestVersion else { return }

@@ -1,10 +1,6 @@
 import AppKit
 import SwiftUI
 
-/// SwiftUI helper for grabbing the enclosing `NSScrollView` used by a SwiftUI `ScrollView`.
-///
-/// We use this instead of `ScrollViewReader` because we need to scroll to arbitrary pixel offsets
-/// (used by the markdown scroll-sync coordinator).
 struct EnclosingNSScrollViewReader: NSViewRepresentable {
     var onResolve: (NSScrollView) -> Void
     var onScroll: ((NSScrollView) -> Void)?

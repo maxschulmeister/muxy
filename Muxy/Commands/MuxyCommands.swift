@@ -320,7 +320,7 @@ struct MuxyCommands: Commands {
             Button("Refresh Markdown Preview") {
                 refreshMarkdownPreview()
             }
-            .keyboardShortcut("r", modifiers: .command)
+            .shortcut(for: .refreshMarkdownPreview, store: keyBindings)
             .disabled(!isMarkdownPreviewActive)
 
             Divider()
@@ -329,21 +329,21 @@ struct MuxyCommands: Commands {
                 guard isMainWindowFocused, isMarkdownPreviewActive else { return }
                 adjustMarkdownPreviewZoom(by: EditorSettings.markdownPreviewZoomStep)
             }
-            .keyboardShortcut("=", modifiers: .command)
+            .shortcut(for: .zoomInMarkdownPreview, store: keyBindings)
             .disabled(!isMarkdownPreviewActive)
 
             Button("Zoom Out Markdown Preview") {
                 guard isMainWindowFocused, isMarkdownPreviewActive else { return }
                 adjustMarkdownPreviewZoom(by: -EditorSettings.markdownPreviewZoomStep)
             }
-            .keyboardShortcut("-", modifiers: .command)
+            .shortcut(for: .zoomOutMarkdownPreview, store: keyBindings)
             .disabled(!isMarkdownPreviewActive)
 
             Button("Reset Markdown Preview Zoom") {
                 guard isMainWindowFocused, isMarkdownPreviewActive else { return }
                 EditorSettings.shared.markdownPreviewFontScale = EditorSettings.defaultMarkdownPreviewFontScale
             }
-            .keyboardShortcut("0", modifiers: .command)
+            .shortcut(for: .resetMarkdownPreviewZoom, store: keyBindings)
             .disabled(!isMarkdownPreviewActive)
         }
 

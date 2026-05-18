@@ -1,7 +1,6 @@
 import AppKit
 import SwiftUI
 
-/// Native SwiftUI markdown preview.
 struct NativeMarkdownPreviewView: View {
     let content: String
     let filePath: String?
@@ -86,8 +85,6 @@ struct NativeMarkdownPreviewView: View {
                         }
                         EnclosingNSScrollViewReader(
                             onResolve: { resolvedScrollView in
-                                // Capture the NSScrollView backing SwiftUI's ScrollView so we can scroll
-                                // to arbitrary pixel offsets (required by scroll sync).
                                 scrollView = resolvedScrollView
                                 NativeMarkdownCursorCoordinator.shared.attach(resolvedScrollView)
                                 handleScrollViewDidScroll(resolvedScrollView)
@@ -147,13 +144,9 @@ struct NativeMarkdownPreviewView: View {
 
             guard scrollSyncEnabled else { return }
 
-            // If a scroll-sync request arrived before we had reliable metrics (content height = 0),
-            // retry now that we have updated geometry.
             applyPreferredScrollIfNeeded()
 
             if let until = programmaticScrollSuppressionUntil, Date() < until {
-                // Avoid feedback loops: when we scroll programmatically in response to a sync
-                // request, suppress emitting scroll reports briefly.
                 return
             }
 
@@ -231,10 +224,8 @@ struct NativeMarkdownPreviewView: View {
         currentScrollTop = report.scrollTop
 
         guard scrollSyncEnabled else { return }
-        guard let until = programmaticScrollSuppressionUntil, Date() < until else {
-            reportScrollIfChanged(report)
-            return
-        }
+        if let until = programmaticScrollSuppressionUntil, Date() < until { return }
+        reportScrollIfChanged(report)
     }
 
     private func reportScrollIfChanged(_ report: MarkdownPreviewScrollReport) {
@@ -321,17 +312,13 @@ struct NativeMarkdownPreviewView: View {
         clipView.scroll(to: targetPoint)
         scrollView.reflectScrolledClipView(clipView)
 
-        // SwiftUI's ScrollView can defer preference updates. Keep our cached metrics
-        // current immediately after a programmatic sync scroll so the next user scroll
-        // is compared against the actual native preview position.
         handleScrollViewDidScroll(scrollView)
     }
 
     private func applyFragmentScrollIfNeeded(renderUnits: [NativeMarkdownRenderUnit]) {
         guard fragmentRequestVersion != lastAppliedFragmentRequestVersion else { return }
         guard let fragmentTarget, !fragmentTarget.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        guard scrollToFragment(fragmentTarget, renderUnits: renderUnits) else { return }
-        lastAppliedFragmentRequestVersion = fragmentRequestVersion
+        _ = scrollToFragment(fragmentTarget, renderUnits: renderUnits)
     }
 
     @discardableResult
@@ -438,11 +425,6 @@ struct NativeMarkdownPreviewView: View {
             }
         }
 
-        // Anchor frames move relative to the viewport while the user scrolls. The
-        // absolute top calculation usually cancels that out, but SwiftUI can deliver
-        // scroll metrics and anchor frames in separate passes. Treat top-only changes
-        // with the same content height as scroll noise so relayout reissues do not
-        // keep extending the programmatic-scroll suppression window.
         return false
     }
 }
@@ -1149,7 +1131,6 @@ extension MarkdownRenderer.Palette {
     }
 
     var codeBackgroundColor: NSColor {
-        // Slightly lift background towards foreground to get a subtle code backdrop.
         background.blended(withFraction: 0.08, of: foreground) ?? background
     }
 

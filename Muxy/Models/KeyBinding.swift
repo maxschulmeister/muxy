@@ -64,6 +64,10 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case navigateForward
     case toggleMaximizePane
     case toggleVoiceRecording
+    case refreshMarkdownPreview
+    case zoomInMarkdownPreview
+    case zoomOutMarkdownPreview
+    case resetMarkdownPreviewZoom
 
     static let allCases: [Self] = [
         .newTab,
@@ -121,6 +125,10 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .navigateForward,
         .toggleMaximizePane,
         .toggleVoiceRecording,
+        .refreshMarkdownPreview,
+        .zoomInMarkdownPreview,
+        .zoomOutMarkdownPreview,
+        .resetMarkdownPreviewZoom,
     ]
 
     var id: String { rawValue }
@@ -203,6 +211,26 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .openProject: ShortcutMetadata(displayName: "Open Project", category: "App", scope: .mainWindow)
         case .reloadConfig: ShortcutMetadata(displayName: "Reload Configuration", category: "App", scope: .global)
         case .toggleMaximizePane: ShortcutMetadata(displayName: "Toggle Maximize Pane", category: "Panes", scope: .mainWindow)
+        case .refreshMarkdownPreview: ShortcutMetadata(
+                displayName: "Refresh Markdown Preview",
+                category: "Markdown",
+                scope: .mainWindow
+            )
+        case .zoomInMarkdownPreview: ShortcutMetadata(
+                displayName: "Zoom In Markdown Preview",
+                category: "Markdown",
+                scope: .mainWindow
+            )
+        case .zoomOutMarkdownPreview: ShortcutMetadata(
+                displayName: "Zoom Out Markdown Preview",
+                category: "Markdown",
+                scope: .mainWindow
+            )
+        case .resetMarkdownPreviewZoom: ShortcutMetadata(
+                displayName: "Reset Markdown Preview Zoom",
+                category: "Markdown",
+                scope: .mainWindow
+            )
         }
     }
 
@@ -211,7 +239,10 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     var scope: ShortcutScope { metadata.scope }
 
     static var categories: [String] {
-        ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "Navigation", "Terminal", "Rich Input", "Editor", "App"]
+        [
+            "Tabs", "Panes", "Tab Navigation", "Project Navigation", "Navigation",
+            "Terminal", "Rich Input", "Editor", "Markdown", "App",
+        ]
     }
 
     static func tabAction(for index: Int) -> Self? {
@@ -325,5 +356,9 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .navigateForward, combo: KeyCombo(key: KeyCombo.rightArrowKey, command: true, control: true)),
         Self(action: .toggleMaximizePane, combo: KeyCombo(key: KeyCombo.returnKey, command: true, option: true)),
         Self(action: .toggleVoiceRecording, combo: KeyCombo(key: "i", command: true, shift: true)),
+        Self(action: .refreshMarkdownPreview, combo: KeyCombo(key: "r", command: true)),
+        Self(action: .zoomInMarkdownPreview, combo: KeyCombo(key: "=", command: true)),
+        Self(action: .zoomOutMarkdownPreview, combo: KeyCombo(key: "-", command: true)),
+        Self(action: .resetMarkdownPreviewZoom, combo: KeyCombo(key: "0", command: true)),
     ]
 }

@@ -1,6 +1,5 @@
 import AppKit
 
-/// Shared palette values for the native Markdown preview and embedded block renderers.
 enum MarkdownRenderer {
     struct Palette: Equatable {
         let background: NSColor

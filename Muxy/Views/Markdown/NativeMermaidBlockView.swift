@@ -4,11 +4,6 @@ import SwiftUI
 #if canImport(BeautifulMermaid)
 import BeautifulMermaid
 
-/// Native Mermaid block renderer for the native Markdown preview.
-///
-/// Renders Mermaid into a fitted native `NSImage` instead of embedding BeautifulMermaid's
-/// live `NSView`. This keeps SwiftUI in control of the block's layout and guarantees the
-/// diagram is aspect-fit into the markdown column rather than clipped by an intrinsic size.
 @available(macOS 14.0, *)
 struct NativeMermaidBlockView: View {
     let source: String
@@ -23,7 +18,6 @@ struct NativeMermaidBlockView: View {
     @State private var exportError: String?
 
     private var theme: DiagramTheme {
-        // BeautifulMermaid uses `BMColor` which is `NSColor` on macOS.
         DiagramTheme(
             background: palette.background,
             foreground: palette.foreground,
@@ -172,10 +166,6 @@ struct NativeMermaidBlockView: View {
     }
 
     private func correctedImage(_ image: NSImage) -> NSImage {
-        // BeautifulMermaid's CGContext renderers do not currently agree on the same
-        // final image-space orientation for every diagram family. Most renderers need
-        // a vertical flip after fitted bitmap rendering, while ER diagrams are already
-        // vertically oriented after that path but still need the horizontal correction.
         if isERDiagram(source) {
             return image.horizontallyMirrored().verticallyFlipped()
         }
@@ -231,9 +221,7 @@ struct NativeMermaidBlockView: View {
         do {
             try process.run()
             return
-        } catch {
-            // Fall back to NSWorkspace below and surface an error only if both routes fail.
-        }
+        } catch {}
 
         if let previewURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Preview") {
             let configuration = NSWorkspace.OpenConfiguration()

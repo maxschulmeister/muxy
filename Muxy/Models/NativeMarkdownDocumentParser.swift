@@ -1,16 +1,8 @@
 import Foundation
 
-/// Splits a markdown document into blocks of plain markdown and Mermaid fenced code blocks.
-///
-/// The parser is intentionally conservative and only extracts Mermaid fences whose opening line
-/// uses backticks or tildes with a fence length of at least 3 and whose first info token equals
-/// "mermaid" (case-insensitive).
-///
-/// Non-Mermaid fenced code blocks are left inside the returned `.markdown` blocks unchanged.
 enum NativeMarkdownDocumentParser {
     enum Block: Equatable {
         case markdown(String)
-        /// Mermaid diagram source (contents inside the fence, excluding the fence lines).
         case mermaid(String)
 
         var markdownText: String {
@@ -21,10 +13,6 @@ enum NativeMarkdownDocumentParser {
         }
     }
 
-    /// A parsed document block tagged with its source line span (1-based, inclusive).
-    ///
-    /// This is used by the native markdown preview to map rendered blocks back onto
-    /// `MarkdownSyncAnchor` IDs for scroll sync.
     struct SpannedBlock: Equatable, Identifiable {
         let id: Int
         let block: Block
@@ -83,7 +71,6 @@ enum NativeMarkdownDocumentParser {
         }
 
         while cursor < end {
-            // Current line range: [lineStart, lineEnd) where lineEnd includes newline if present.
             let lineStartIndex = cursor
             let lineStartLine = currentLine
 
@@ -92,7 +79,6 @@ enum NativeMarkdownDocumentParser {
                 lineEndIndex = markdown.index(after: lineEndIndex)
             }
             if lineEndIndex < end {
-                // include newline; handle CRLF by including both
                 let nl = markdown[lineEndIndex]
                 lineEndIndex = markdown.index(after: lineEndIndex)
                 if nl == "\r", lineEndIndex < end, markdown[lineEndIndex] == "\n" {
@@ -100,7 +86,6 @@ enum NativeMarkdownDocumentParser {
                 }
             }
 
-            // Analyze the line without its trailing newline for fence opening.
             let rawLine = markdown[lineStartIndex ..< lineEndIndex]
             let lineSansNL: Substring = if rawLine.hasSuffix("\r\n") {
                 rawLine.dropLast(2)
@@ -111,10 +96,8 @@ enum NativeMarkdownDocumentParser {
             }
 
             if let opening = parseOpeningMermaidFence(lineSansNL) {
-                // Flush preceding markdown (everything before this opening line).
                 flushMarkdown(upTo: lineStartIndex, endLine: lineStartLine - 1)
 
-                // Mermaid code begins after the opening line.
                 let codeStartIndex = lineEndIndex
                 var searchCursor = codeStartIndex
                 var searchLine = lineStartLine + 1
@@ -175,7 +158,6 @@ enum NativeMarkdownDocumentParser {
                     markdownSegmentStartLine = currentLine
                     continue
                 } else {
-                    // Unclosed fence: treat the rest of the document as Mermaid source.
                     let code = String(markdown[codeStartIndex ..< end])
                     blocks.append(
                         SpannedBlock(
@@ -204,15 +186,12 @@ enum NativeMarkdownDocumentParser {
         return blocks
     }
 
-    // MARK: - Fence parsing
-
     private struct OpeningFence {
         let fenceChar: Character
         let fenceLength: Int
     }
 
     private static func parseOpeningMermaidFence(_ line: Substring) -> OpeningFence? {
-        // CommonMark: up to 3 spaces indentation.
         var idx = line.startIndex
         var spaces = 0
         while idx < line.endIndex, spaces < 3 {
@@ -221,7 +200,6 @@ enum NativeMarkdownDocumentParser {
                 spaces += 1
                 idx = line.index(after: idx)
             } else if ch == "\t" {
-                // treat tab as indentation too
                 idx = line.index(after: idx)
                 break
             } else {
@@ -240,7 +218,6 @@ enum NativeMarkdownDocumentParser {
         }
         guard len >= 3 else { return nil }
 
-        // Info string is the rest of the line.
         let info = String(line[idx...]).trimmingCharacters(in: .whitespacesAndNewlines)
         let firstToken = info.split(whereSeparator: { $0.isWhitespace }).first.map { String($0) } ?? ""
         guard firstToken.lowercased() == "mermaid" else { return nil }
@@ -274,7 +251,6 @@ enum NativeMarkdownDocumentParser {
         }
         guard len >= minLength else { return false }
 
-        // The rest must be whitespace only.
         while idx < line.endIndex {
             let ch = line[idx]
             if ch == " " || ch == "\t" {
