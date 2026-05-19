@@ -12,7 +12,6 @@ struct VCSTabView: View {
     @State private var pendingDiscardPath: String?
     @State private var showCreateWorktreeSheet = false
     @State private var showCreateBranchSheet = false
-    @State private var showInlinePRForm = false
     @State private var pendingClosePR: GitRepositoryService.PRInfo?
     @State private var pendingCheckoutPR: GitRepositoryService.PRListItem?
     private var commitEnabled: Bool {
@@ -160,16 +159,12 @@ struct VCSTabView: View {
                 onCancel: { showCreateBranchSheet = false }
             )
         }
-        .onChange(of: state.pullRequestInfo?.number) { _, number in
-            guard number != nil, showInlinePRForm else { return }
-            showInlinePRForm = false
-        }
     }
 
     private func requestOpenPR() {
         state.openPullRequestError = nil
         state.loadBranches()
-        showInlinePRForm = true
+        state.showInlinePRForm = true
     }
 
     @ViewBuilder
@@ -434,7 +429,7 @@ struct VCSTabView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             VStack(spacing: 0) {
-                if showInlinePRForm {
+                if state.showInlinePRForm {
                     createPRForm
                 } else {
                     commitArea
@@ -465,6 +460,7 @@ struct VCSTabView: View {
             ),
             inProgress: state.isOpeningPullRequest,
             errorMessage: state.openPullRequestError,
+            draft: $state.prFormDraft,
             onLoadRemoteBranches: { state.loadRemoteBranches() },
             onSubmit: { base, title, body, branchStrategy, includeMode, draft in
                 ToastState.shared.show("Creating pull request…")
@@ -481,7 +477,7 @@ struct VCSTabView: View {
             },
             onCancel: {
                 state.openPullRequestError = nil
-                showInlinePRForm = false
+                state.resetPRForm()
             },
             onGenerateAI: { base in
                 let path = state.projectPath
@@ -935,6 +931,9 @@ struct PRPill: View {
                 },
                 onRefresh: {
                     state.refreshPullRequest()
+                },
+                onUpdateBranch: {
+                    state.updatePullRequestBranch()
                 }
             )
         }
@@ -1008,6 +1007,7 @@ struct PRPopover: View {
     let onClose: () -> Void
     let onOpenInBrowser: () -> Void
     let onRefresh: () -> Void
+    let onUpdateBranch: () -> Void
 
     @State private var mergeMethod: GitRepositoryService.PRMergeMethod = .squash
 
@@ -1046,7 +1046,7 @@ struct PRPopover: View {
 
             VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
                 infoRow(label: "Base", value: info.baseBranch)
-                if let label = mergeableLabel {
+                if let label = PRMergeabilityPresentation.make(info: info) {
                     infoRow(
                         label: "Mergeable",
                         value: label.text,
@@ -1077,6 +1077,30 @@ struct PRPopover: View {
             .buttonStyle(.plain)
 
             if info.state == .open {
+                if info.mergeStateStatus == .behind, !info.isCrossRepository {
+                    Button(action: onUpdateBranch) {
+                        HStack(spacing: UIMetrics.spacing3) {
+                            if state.isUpdatingPullRequestBranch {
+                                ProgressView().controlSize(.mini)
+                            } else {
+                                Image(systemName: "arrow.down.circle")
+                                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                            }
+                            Text(state.isUpdatingPullRequestBranch ? "Updating…" : "Update branch")
+                                .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+                            Spacer(minLength: 0)
+                        }
+                        .foregroundStyle(MuxyTheme.fg)
+                        .padding(.horizontal, UIMetrics.spacing4)
+                        .padding(.vertical, UIMetrics.spacing3)
+                        .frame(maxWidth: .infinity)
+                        .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(state.isUpdatingPullRequestBranch)
+                    .help("Merge \(info.baseBranch) into this branch")
+                }
+
                 SegmentedPicker(
                     selection: $mergeMethod,
                     options: GitRepositoryService.PRMergeMethod.allCases.map { ($0, $0.shortLabel) }
@@ -1170,28 +1194,6 @@ struct PRPopover: View {
                 return "Checks are still running. You will be asked to confirm before merging."
             }
             return "Merge PR #\(info.number)"
-        }
-    }
-
-    private var mergeableLabel: (text: String, color: Color)? {
-        switch info.mergeStateStatus {
-        case .dirty:
-            return ("Conflicts", MuxyTheme.diffRemoveFg)
-        case .behind:
-            return ("Behind base", MuxyTheme.diffRemoveFg)
-        case .blocked:
-            return ("Blocked", MuxyTheme.diffRemoveFg)
-        case .draft:
-            return ("Draft", MuxyTheme.fgMuted)
-        case .clean,
-             .hasHooks:
-            return ("Yes", MuxyTheme.diffAddFg)
-        case .unstable:
-            return ("Yes (checks failing)", MuxyTheme.diffAddFg)
-        case .unknown:
-            if info.mergeable == true { return ("Yes", MuxyTheme.diffAddFg) }
-            if info.mergeable == false { return ("Conflicts", MuxyTheme.diffRemoveFg) }
-            return nil
         }
     }
 

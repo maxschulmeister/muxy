@@ -55,6 +55,18 @@ final class VCSTabState {
         let draft: Bool
     }
 
+    struct PRFormDraft: Equatable {
+        var title: String = ""
+        var body: String = ""
+        var baseBranch: String = ""
+        var newBranchName: String = ""
+        var userEditedBranchName: Bool = false
+        var includeAll: Bool = true
+        var draft: Bool = false
+        var advanced: Bool = false
+        var initialCurrentBranch: String?
+    }
+
     let projectPath: String
     var files: [GitStatusFile] = []
     var mode: ViewMode = .unified
@@ -87,11 +99,14 @@ final class VCSTabState {
     var isLoadingRepositoryLabels = false
     var repositoryLabelsError: String?
     var pendingLabelUpdates: Set<String> = []
+    var isUpdatingPullRequestBranch = false
     var hasFetchedPullRequestInfo = false
     private(set) var isGitRepo = false
     private(set) var remoteWebURL: URL?
 
     var commitMessage = ""
+    var prFormDraft = PRFormDraft()
+    var showInlinePRForm = false
     var branches: [String] = []
     var isCommitting = false
     var isPushing = false
@@ -984,6 +999,11 @@ final class VCSTabState {
         }
     }
 
+    func resetPRForm() {
+        prFormDraft = PRFormDraft()
+        showInlinePRForm = false
+    }
+
     func openPullRequest(_ request: PRCreateRequest) {
         let trimmedTitle = request.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedBase = request.baseBranch.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1054,6 +1074,7 @@ final class VCSTabState {
 
         pullRequestInfo = info
         commits = []
+        resetPRForm()
         ToastState.shared.show("Pull request #\(info.number) opened")
         loadBranches()
         performRefresh(incremental: false)
@@ -1206,6 +1227,29 @@ final class VCSTabState {
                     label: name
                 )
                 guard !Task.isCancelled else { return }
+                refreshPullRequest()
+            } catch {
+                guard !Task.isCancelled else { return }
+                showStatus(errorText(error), isError: true)
+            }
+        }
+    }
+
+    func updatePullRequestBranch() {
+        guard let info = pullRequestInfo, !isUpdatingPullRequestBranch else { return }
+        guard !info.isCrossRepository else {
+            showStatus("Branch lives on a fork — update it locally.", isError: true)
+            return
+        }
+        guard let branch = branchName else { return }
+        isUpdatingPullRequestBranch = true
+        Task { [weak self] in
+            guard let self else { return }
+            defer { isUpdatingPullRequestBranch = false }
+            do {
+                try await git.mergeBaseIntoCurrentBranch(repoPath: projectPath, baseBranch: info.baseBranch)
+                guard !Task.isCancelled, branchName == branch else { return }
+                ToastState.shared.show("Merged \(info.baseBranch) into \(branch)")
                 refreshPullRequest()
             } catch {
                 guard !Task.isCancelled else { return }

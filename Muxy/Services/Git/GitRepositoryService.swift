@@ -1075,6 +1075,58 @@ struct GitRepositoryService {
         GitMetadataCache.shared.invalidatePRInfo(repoPath: repoPath)
     }
 
+    func mergeBaseIntoCurrentBranch(repoPath: String, baseBranch: String) async throws {
+        let trimmed = baseBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed.unicodeScalars.allSatisfy({ Self.allowedBranchCharacters.contains($0) })
+        else {
+            throw GitError.commandFailed("Invalid base branch name.")
+        }
+
+        let statusResult = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["status", "--porcelain=1", "--untracked-files=no"]
+        )
+        if statusResult.status == 0,
+           !statusResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            throw GitError.commandFailed("Commit or stash your changes before updating the branch.")
+        }
+
+        let fetchResult = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["fetch", "origin", trimmed]
+        )
+        guard fetchResult.status == 0 else {
+            throw GitError.commandFailed(
+                fetchResult.stderr.isEmpty ? "Failed to fetch origin/\(trimmed)." : fetchResult.stderr
+            )
+        }
+
+        let mergeResult = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["merge", "--no-edit", "origin/\(trimmed)"]
+        )
+        guard mergeResult.status == 0 else {
+            _ = try? await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["merge", "--abort"])
+            let detail = mergeResult.stderr.isEmpty ? mergeResult.stdout : mergeResult.stderr
+            let trimmedDetail = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw GitError.commandFailed(
+                trimmedDetail.isEmpty
+                    ? "Could not merge origin/\(trimmed) — resolve conflicts manually."
+                    : "Could not merge origin/\(trimmed): \(trimmedDetail)"
+            )
+        }
+
+        let pushResult = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["push"])
+        guard pushResult.status == 0 else {
+            throw GitError.commandFailed(
+                pushResult.stderr.isEmpty ? "Merged locally but failed to push." : pushResult.stderr
+            )
+        }
+        GitMetadataCache.shared.invalidatePRInfo(repoPath: repoPath)
+    }
+
     @discardableResult
     func fastForwardBranch(repoPath: String, branch: String) async -> Bool {
         let trimmed = branch.trimmingCharacters(in: .whitespacesAndNewlines)
