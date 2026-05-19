@@ -188,6 +188,54 @@ struct GitPRParserTests {
             let info = GitPRParser.parsePRInfo(json)
             #expect(info?.isCrossRepository == false)
         }
+
+        @Test("labels parse with name, color, and description")
+        func labelsParse() {
+            let json = """
+            {
+              "url": "u",
+              "number": 1,
+              "state": "OPEN",
+              "labels": [
+                {"name": "bug", "color": "d73a4a", "description": "Something broken"},
+                {"name": "feature", "color": "0e8a16", "description": ""}
+              ]
+            }
+            """
+            let info = GitPRParser.parsePRInfo(json)
+            #expect(info?.labels.count == 2)
+            #expect(info?.labels[0].name == "bug")
+            #expect(info?.labels[0].color == "d73a4a")
+            #expect(info?.labels[0].description == "Something broken")
+            #expect(info?.labels[1].name == "feature")
+            #expect(info?.labels[1].description == "")
+        }
+
+        @Test("missing labels defaults to empty array")
+        func labelsMissing() {
+            let json = #"{"url":"u","number":1,"state":"OPEN"}"#
+            let info = GitPRParser.parsePRInfo(json)
+            #expect(info?.labels.isEmpty == true)
+        }
+
+        @Test("label entries without a name are skipped")
+        func labelsSkipInvalid() {
+            let json = """
+            {
+              "url": "u",
+              "number": 1,
+              "state": "OPEN",
+              "labels": [
+                {"color": "ffffff"},
+                {"name": "", "color": "ffffff"},
+                {"name": "kept", "color": "ffffff"}
+              ]
+            }
+            """
+            let info = GitPRParser.parsePRInfo(json)
+            #expect(info?.labels.count == 1)
+            #expect(info?.labels.first?.name == "kept")
+        }
     }
 
     @Suite("parsePRInfoMatchingHeadSha")

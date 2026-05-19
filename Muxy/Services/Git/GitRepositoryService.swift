@@ -35,6 +35,15 @@ struct GitRepositoryService {
         let mergeStateStatus: PRMergeStateStatus
         let checks: PRChecks
         let isCrossRepository: Bool
+        let labels: [PRLabel]
+    }
+
+    struct PRLabel: Equatable, Hashable, Identifiable {
+        let name: String
+        let color: String
+        let description: String
+
+        var id: String { name }
     }
 
     struct PRListItem: Equatable, Identifiable {
@@ -209,7 +218,7 @@ struct GitRepositoryService {
     }
 
     static let prInfoJSONFields =
-        "url,number,state,isDraft,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,isCrossRepository"
+        "url,number,state,isDraft,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,isCrossRepository,labels"
     static let prInfoJSONFieldsWithHeadRefOid = prInfoJSONFields + ",headRefOid,headRefName"
 
     func pullRequestInfo(repoPath: String, branch: String, headSha: String? = nil) async -> PRInfo? {
@@ -639,6 +648,64 @@ struct GitRepositoryService {
                 result.stderr.isEmpty ? "Failed to delete remote branch \(branch)." : result.stderr
             )
         }
+    }
+
+    func listRepositoryLabels(repoPath: String) async throws -> [PRLabel] {
+        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
+            throw PRCreateError.ghNotInstalled
+        }
+        let result = try await GitProcessRunner.runCommand(
+            executable: ghPath,
+            arguments: ["label", "list", "--limit", "200", "--json", "name,color,description"],
+            workingDirectory: repoPath
+        )
+        guard result.status == 0 else {
+            let message = result.stderr.isEmpty ? result.stdout : result.stderr
+            throw PRCreateError.commandFailed(
+                message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? "Failed to list repository labels."
+                    : message.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+        guard let data = result.stdout.data(using: .utf8),
+              let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        else { return [] }
+        return GitPRParser.parseLabels(array)
+    }
+
+    func addLabelsToPullRequest(repoPath: String, number: Int, labels: [String]) async throws {
+        try await editPullRequestLabels(repoPath: repoPath, number: number, flag: "--add-label", labels: labels)
+    }
+
+    func removeLabelFromPullRequest(repoPath: String, number: Int, label: String) async throws {
+        try await editPullRequestLabels(repoPath: repoPath, number: number, flag: "--remove-label", labels: [label])
+    }
+
+    private func editPullRequestLabels(
+        repoPath: String,
+        number: Int,
+        flag: String,
+        labels: [String]
+    ) async throws {
+        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
+            throw PRCreateError.ghNotInstalled
+        }
+        guard !labels.isEmpty else { return }
+        let joined = labels.joined(separator: ",")
+        let result = try await GitProcessRunner.runCommand(
+            executable: ghPath,
+            arguments: ["pr", "edit", String(number), flag, joined],
+            workingDirectory: repoPath
+        )
+        guard result.status == 0 else {
+            let message = result.stderr.isEmpty ? result.stdout : result.stderr
+            throw PRCreateError.commandFailed(
+                message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? "Failed to update labels."
+                    : message.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+        GitMetadataCache.shared.invalidatePRInfo(repoPath: repoPath)
     }
 
     func closePullRequest(repoPath: String, number: Int) async throws {

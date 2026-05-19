@@ -27,6 +27,7 @@ enum GitPRParser {
         ) ?? .unknown
         let rollup = json["statusCheckRollup"] as? [[String: Any]] ?? []
         let isCrossRepository = json["isCrossRepository"] as? Bool ?? false
+        let labels = parseLabels(json["labels"] as? [[String: Any]] ?? [])
 
         return GitRepositoryService.PRInfo(
             url: url,
@@ -37,8 +38,18 @@ enum GitPRParser {
             mergeable: mergeable,
             mergeStateStatus: mergeStateStatus,
             checks: parseStatusChecks(rollup),
-            isCrossRepository: isCrossRepository
+            isCrossRepository: isCrossRepository,
+            labels: labels
         )
+    }
+
+    static func parseLabels(_ rawLabels: [[String: Any]]) -> [GitRepositoryService.PRLabel] {
+        rawLabels.compactMap { entry -> GitRepositoryService.PRLabel? in
+            guard let name = entry["name"] as? String, !name.isEmpty else { return nil }
+            let color = (entry["color"] as? String) ?? ""
+            let description = (entry["description"] as? String) ?? ""
+            return GitRepositoryService.PRLabel(name: name, color: color, description: description)
+        }
     }
 
     static func parseStatusChecks(_ rollup: [[String: Any]]) -> GitRepositoryService.PRChecks {

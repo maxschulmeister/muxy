@@ -83,6 +83,10 @@ final class VCSTabState {
     var isMergingPullRequest = false
     var isClosingPullRequest = false
     var isRefreshingPullRequest = false
+    var availableRepositoryLabels: [GitRepositoryService.PRLabel] = []
+    var isLoadingRepositoryLabels = false
+    var repositoryLabelsError: String?
+    var pendingLabelUpdates: Set<String> = []
     var hasFetchedPullRequestInfo = false
     private(set) var isGitRepo = false
     private(set) var remoteWebURL: URL?
@@ -1139,6 +1143,70 @@ final class VCSTabState {
                 pullRequestInfo = nil
                 ToastState.shared.show("Closed PR #\(info.number)")
                 onSuccess()
+            } catch {
+                guard !Task.isCancelled else { return }
+                showStatus(errorText(error), isError: true)
+            }
+        }
+    }
+
+    func loadRepositoryLabels(force: Bool = false) {
+        if !force, !availableRepositoryLabels.isEmpty { return }
+        if isLoadingRepositoryLabels { return }
+        isLoadingRepositoryLabels = true
+        repositoryLabelsError = nil
+        Task { [weak self] in
+            guard let self else { return }
+            defer { isLoadingRepositoryLabels = false }
+            do {
+                let labels = try await git.listRepositoryLabels(repoPath: projectPath)
+                guard !Task.isCancelled else { return }
+                availableRepositoryLabels = labels
+            } catch {
+                guard !Task.isCancelled else { return }
+                repositoryLabelsError = errorText(error)
+            }
+        }
+    }
+
+    func addLabel(_ name: String) {
+        guard let info = pullRequestInfo else { return }
+        guard !pendingLabelUpdates.contains(name) else { return }
+        guard !info.labels.contains(where: { $0.name == name }) else { return }
+        pendingLabelUpdates.insert(name)
+        Task { [weak self] in
+            guard let self else { return }
+            defer { pendingLabelUpdates.remove(name) }
+            do {
+                try await git.addLabelsToPullRequest(
+                    repoPath: projectPath,
+                    number: info.number,
+                    labels: [name]
+                )
+                guard !Task.isCancelled else { return }
+                refreshPullRequest()
+            } catch {
+                guard !Task.isCancelled else { return }
+                showStatus(errorText(error), isError: true)
+            }
+        }
+    }
+
+    func removeLabel(_ name: String) {
+        guard let info = pullRequestInfo else { return }
+        guard !pendingLabelUpdates.contains(name) else { return }
+        pendingLabelUpdates.insert(name)
+        Task { [weak self] in
+            guard let self else { return }
+            defer { pendingLabelUpdates.remove(name) }
+            do {
+                try await git.removeLabelFromPullRequest(
+                    repoPath: projectPath,
+                    number: info.number,
+                    label: name
+                )
+                guard !Task.isCancelled else { return }
+                refreshPullRequest()
             } catch {
                 guard !Task.isCancelled else { return }
                 showStatus(errorText(error), isError: true)

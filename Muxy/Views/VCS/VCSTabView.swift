@@ -1056,6 +1056,8 @@ struct PRPopover: View {
                 checksRow
             }
 
+            PRLabelsSection(state: state, info: info)
+
             Divider()
 
             Button(action: onOpenInBrowser) {
