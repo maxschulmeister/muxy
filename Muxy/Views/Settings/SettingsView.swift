@@ -9,8 +9,6 @@ struct SettingsView: View {
                 .tabItem { Label("Appearance", systemImage: "paintbrush") }
             EditorSettingsView()
                 .tabItem { Label("Editor", systemImage: "pencil.line") }
-            SessionRestoreSettingsView()
-                .tabItem { Label("Sessions", systemImage: "clock.arrow.circlepath") }
             KeyboardShortcutsSettingsView()
                 .tabItem { Label("Shortcuts", systemImage: "keyboard") }
             RecordingSettingsView()

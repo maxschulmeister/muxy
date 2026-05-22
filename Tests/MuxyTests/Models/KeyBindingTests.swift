@@ -94,13 +94,6 @@ struct KeyBindingTests {
         #expect(combos[.toggleMaximizePane] == KeyCombo(key: KeyCombo.returnKey, command: true, option: true))
     }
 
-    @Test("KeyBinding.defaults uses browser reopen shortcut")
-    func defaultsIncludesReopenClosedTerminalTabShortcut() {
-        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
-        #expect(combos[.reopenClosedTerminalTab] == KeyCombo(key: "t", command: true, shift: true))
-        #expect(combos[.renameTab] == KeyCombo(key: "t", shift: true, option: true))
-    }
-
     @Test("KeyBinding Codable round-trip")
     func codableRoundTrip() throws {
         let binding = KeyBinding(

@@ -138,12 +138,11 @@ struct TerminalBridge: NSViewRepresentable {
 
     func makeNSView(context: Context) -> GhosttyTerminalNSView {
         let registry = TerminalViewRegistry.shared
-        let launch = state.consumeRestoredLaunch()
         let view = registry.view(
             for: state.id,
             workingDirectory: state.currentWorkingDirectory ?? state.projectPath,
-            command: launch.command,
-            commandInteractive: launch.interactive
+            command: state.startupCommand,
+            commandInteractive: state.startupCommandInteractive
         )
         if view.envVars.isEmpty, let key = worktreeKey {
             view.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)

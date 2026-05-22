@@ -111,19 +111,6 @@ enum TabReducer {
         area.createImageViewerTab(filePath: filePath)
     }
 
-    static func restoreClosedTerminalTab(
-        projectID: UUID,
-        areaID: UUID?,
-        snapshot: ClosedTerminalTabSnapshot,
-        state: inout WorkspaceState
-    ) {
-        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
-              let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
-        else { return }
-        FocusReducer.focusArea(area.id, key: key, state: &state)
-        area.restoreClosedTerminalTab(snapshot)
-    }
-
     static func selectTab(projectID: UUID, areaID: UUID?, tabID: UUID, state: inout WorkspaceState) {
         guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
               let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
