@@ -62,6 +62,14 @@ enum SocketCommandHandler {
                 projectStore: projectStore,
                 worktreeStore: worktreeStore
             )
+        case "create-worktree":
+            guard let projectStore, let worktreeStore else { return "error:worktree store unavailable" }
+            return await handleCreateWorktree(
+                arguments: Array(parts.dropFirst()),
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore
+            )
         case "switch-worktree":
             guard parts.count >= 2 else { return "error:usage switch-worktree|name-or-id-or-path[|project]" }
             guard let projectStore, let worktreeStore else { return "error:worktree store unavailable" }
@@ -320,6 +328,54 @@ enum SocketCommandHandler {
         return "ok"
     }
 
+    private static func handleCreateWorktree(
+        arguments: [String],
+        appState: AppState,
+        projectStore: ProjectStore,
+        worktreeStore: WorktreeStore
+    ) async -> String {
+        guard arguments.count >= 2 else {
+            return "error:usage create-worktree|name|branch[|project][|path][|createBranch][|baseBranch]"
+        }
+        let name = arguments[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        let branch = arguments[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        let projectIdentifier = arguments.count >= 3 ? arguments[2] : nil
+        let requestedPath = arguments.count >= 4 ? arguments[3].trimmingCharacters(in: .whitespacesAndNewlines) : ""
+        let createBranch = arguments.count >= 5 ? arguments[4] != "false" : true
+        let baseBranch = arguments.count >= 6 ? arguments[5].trimmingCharacters(in: .whitespacesAndNewlines) : ""
+
+        guard !name.isEmpty, !branch.isEmpty else {
+            return "error:name and branch are required"
+        }
+        guard let project = resolveProject(projectIdentifier, appState: appState, projectStore: projectStore) else {
+            return "error:project not found"
+        }
+
+        let path = requestedPath.isEmpty
+            ? WorktreeLocationResolver.worktreeDirectory(for: project, slug: slug(from: name))
+            : NSString(string: requestedPath).expandingTildeInPath
+        guard !FileManager.default.fileExists(atPath: path) else {
+            return "error:worktree path already exists"
+        }
+
+        do {
+            let worktree = try await worktreeStore.createWorktree(
+                project: project,
+                request: WorktreeCreationRequest(
+                    name: name,
+                    path: path,
+                    branch: branch,
+                    createBranch: createBranch,
+                    baseBranch: createBranch && !baseBranch.isEmpty ? baseBranch : nil
+                )
+            )
+            appState.selectWorktree(projectID: project.id, worktree: worktree)
+            return "ok\t\(worktree.id.uuidString)\t\(worktree.name)\t\(worktree.path)\t\(worktree.branch ?? "")"
+        } catch {
+            return "error:\(error.localizedDescription)"
+        }
+    }
+
     private static func handleRefreshWorktrees(
         projectIdentifier: String?,
         appState: AppState,
@@ -420,6 +476,15 @@ enum SocketCommandHandler {
                 || worktree.branch?.localizedCaseInsensitiveCompare(identifier) == .orderedSame
                 || URL(fileURLWithPath: worktree.path).standardizedFileURL.path == standardizedPath
         }
+    }
+
+    private static func slug(from name: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        let scalars = name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
+        let collapsed = String(scalars)
+            .split(separator: "-", omittingEmptySubsequences: true)
+            .joined(separator: "-")
+        return collapsed.isEmpty ? UUID().uuidString : collapsed
     }
 
     private static func tabMatches(_ tab: TerminalTab, identifier: String) -> Bool {
