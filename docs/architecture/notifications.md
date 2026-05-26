@@ -23,7 +23,7 @@ flowchart TB
 | Source | Mechanism |
 | --- | --- |
 | OSC 9 / 777 | `GHOSTTY_ACTION_DESKTOP_NOTIFICATION` in `GhosttyRuntimeEventAdapter`. |
-| Agent CLIs (Claude Code, Codex, Cursor, Droid, OpenCode) | `AIProviderRegistry` installs per-tool hook scripts that route lifecycle events through the socket. |
+| Agent CLIs (Claude Code, Codex, Cursor, Droid, OpenCode, Pi) | `AIProviderRegistry` installs per-tool hook scripts or PATH wrappers that route lifecycle events through the socket. Pi uses a Muxy-owned `pi` wrapper with `--extension` instead of mutating `~/.pi`. |
 | Unix socket | `~/Library/Application Support/Muxy/muxy.sock`, pipe-delimited messages with paneID. |
 
 ## Click-to-navigate
