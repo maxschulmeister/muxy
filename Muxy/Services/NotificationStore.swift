@@ -139,7 +139,8 @@ final class NotificationStore {
 
     private func deliverNotification(_ notification: MuxyNotification) {
         if Self.defaults.bool(forKey: "muxy.notifications.toastEnabled", fallback: true) {
-            ToastState.shared.show(notification.title)
+            let label = AIProviderRegistry.shared.displayName(for: notification.source) ?? notification.title
+            ToastState.shared.show(label)
         }
         playSound()
     }
