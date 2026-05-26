@@ -12,26 +12,35 @@ struct WorktreeConfig: Codable {
     }
 
     let setup: [SetupCommand]
+    let teardown: [SetupCommand]
 
     private enum CodingKeys: String, CodingKey {
         case setup
+        case teardown
     }
 
-    init(setup: [SetupCommand]) {
+    init(setup: [SetupCommand], teardown: [SetupCommand] = []) {
         self.setup = setup
+        self.teardown = teardown
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        if let objectEntries = try? container.decode([SetupCommand].self, forKey: .setup) {
-            setup = objectEntries
-            return
+        setup = Self.decodeCommands(from: container, forKey: .setup)
+        teardown = Self.decodeCommands(from: container, forKey: .teardown)
+    }
+
+    private static func decodeCommands(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) -> [SetupCommand] {
+        if let objectEntries = try? container.decode([SetupCommand].self, forKey: key) {
+            return objectEntries
         }
-        if let stringEntries = try? container.decode([String].self, forKey: .setup) {
-            setup = stringEntries.map { SetupCommand(command: $0) }
-            return
+        if let stringEntries = try? container.decode([String].self, forKey: key) {
+            return stringEntries.map { SetupCommand(command: $0) }
         }
-        setup = []
+        return []
     }
 
     static func load(fromProjectPath projectPath: String) -> WorktreeConfig? {

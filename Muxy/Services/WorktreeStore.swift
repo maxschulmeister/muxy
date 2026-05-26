@@ -160,17 +160,14 @@ final class WorktreeStore {
     static func cleanupOnDisk(
         worktree: Worktree,
         repoPath: String
-    ) async {
+    ) async throws {
         guard worktree.canBeRemoved else { return }
-        do {
-            try await GitWorktreeService.shared.removeWorktree(
-                repoPath: repoPath,
-                path: worktree.path,
-                force: true
-            )
-        } catch {
-            logger.error("Failed to remove git worktree at \(worktree.path): \(error)")
-        }
+        try await WorktreeTeardownRunner.run(sourceProjectPath: repoPath, worktree: worktree)
+        try await GitWorktreeService.shared.removeWorktree(
+            repoPath: repoPath,
+            path: worktree.path,
+            force: true
+        )
 
         if worktree.ownsBranch,
            let branch = worktree.branch?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -191,7 +188,11 @@ final class WorktreeStore {
     static func cleanupOnDisk(for project: Project, knownWorktrees: [Worktree]) async {
         let secondaryWorktrees = knownWorktrees.filter { $0.canBeRemoved && !$0.isExternallyManaged }
         for worktree in secondaryWorktrees {
-            await cleanupOnDisk(worktree: worktree, repoPath: project.path)
+            do {
+                try await cleanupOnDisk(worktree: worktree, repoPath: project.path)
+            } catch {
+                logger.error("Failed to clean up worktree at \(worktree.path): \(error)")
+            }
         }
 
         let root = MuxyFileStorage.worktreeRoot(forProjectID: project.id)

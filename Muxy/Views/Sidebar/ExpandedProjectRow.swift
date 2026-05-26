@@ -425,18 +425,30 @@ struct ExpandedProjectRow: View {
         let replacement = remaining.first(where: { $0.id == activeWorktreeID })
             ?? remaining.first(where: { $0.isPrimary })
             ?? remaining.first
-        appState.removeWorktree(
-            projectID: project.id,
-            worktree: worktree,
-            replacement: replacement
-        )
-        worktreeStore.remove(worktreeID: worktree.id, from: project.id)
-        Task.detached {
-            await WorktreeStore.cleanupOnDisk(
-                worktree: worktree,
-                repoPath: repoPath
-            )
+        Task {
+            do {
+                try await WorktreeStore.cleanupOnDisk(worktree: worktree, repoPath: repoPath)
+                appState.removeWorktree(
+                    projectID: project.id,
+                    worktree: worktree,
+                    replacement: replacement
+                )
+                worktreeStore.remove(worktreeID: worktree.id, from: project.id)
+            } catch {
+                presentRemoveFailure(worktree: worktree, error: error)
+            }
         }
+    }
+
+    private func presentRemoveFailure(worktree: Worktree, error: Error) {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
+              window.attachedSheet == nil
+        else { return }
+
+        let alert = NSAlert(error: error)
+        alert.messageText = "Could not remove worktree \"\(worktree.name)\""
+        alert.icon = NSApp.applicationIconImage
+        alert.beginSheetModal(for: window)
     }
 
     private func startRename() {

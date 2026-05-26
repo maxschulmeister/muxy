@@ -387,17 +387,19 @@ struct VCSTabView: View {
         let repoPath = project.path
         let remaining = worktreeStore.list(for: project.id).filter { $0.id != worktree.id }
         let replacement = remaining.first(where: { $0.isPrimary }) ?? remaining.first
-        appState.removeWorktree(
-            projectID: project.id,
-            worktree: worktree,
-            replacement: replacement
-        )
-        worktreeStore.remove(worktreeID: worktree.id, from: project.id)
-        Task.detached {
-            await WorktreeStore.cleanupOnDisk(
-                worktree: worktree,
-                repoPath: repoPath
-            )
+        Task {
+            do {
+                try await WorktreeStore.cleanupOnDisk(worktree: worktree, repoPath: repoPath)
+                appState.removeWorktree(
+                    projectID: project.id,
+                    worktree: worktree,
+                    replacement: replacement
+                )
+                worktreeStore.remove(worktreeID: worktree.id, from: project.id)
+            } catch {
+                presentWorktreeCleanupFailure(worktree: worktree, error: error)
+                return
+            }
             try? await GitRepositoryService().deleteRemoteBranch(
                 repoPath: repoPath,
                 branch: mergedBranch
@@ -408,6 +410,17 @@ struct VCSTabView: View {
                 baseBranch: baseBranch
             )
         }
+    }
+
+    private func presentWorktreeCleanupFailure(worktree: Worktree, error: Error) {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
+              window.attachedSheet == nil
+        else { return }
+
+        let alert = NSAlert(error: error)
+        alert.messageText = "Could not clean up worktree \"\(worktree.name)\""
+        alert.icon = NSApp.applicationIconImage
+        alert.beginSheetModal(for: window)
     }
 
     @discardableResult
