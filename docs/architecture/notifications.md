@@ -7,7 +7,7 @@ Notifications alert users when terminal events occur (command completion, AI age
 ```mermaid
 flowchart TB
   OSC[OSC 9/777<br/>terminal escape] --> Adapter[GhosttyRuntimeEventAdapter]
-  Claude[Agent CLI hooks<br/>Claude / Codex / Cursor / Droid / OpenCode] --> Sock[Unix socket<br/>muxy.sock]
+  Claude[Agent CLI hooks<br/>Claude / Codex / Cursor / Droid / OpenCode / Pi] --> Sock[Unix socket<br/>muxy.sock]
   External[External tools] --> Sock
   Sock --> Server[NotificationSocketServer]
   Adapter --> Lookup[TerminalViewRegistry<br/>paneID lookup]
